@@ -1,0 +1,7 @@
+/.venv
+/.idea
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+settings.json
