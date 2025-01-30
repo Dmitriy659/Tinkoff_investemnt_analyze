@@ -55,7 +55,7 @@ class Model:
                 positions = client.operations.get_positions(account_id=self.account_id)
                 for money in positions.money:
                     cur_price = money.units + money.nano / 10 ** 9
-                    if money.currency != 'rub':
+                    if money.currency != "rub":
                         cur_price *= self.currencies.get(money.currency, 1)
                     whole_price += cur_price
 
@@ -157,7 +157,7 @@ class Model:
                 info = client.instruments.bond_by(id_type=InstrumentIdType(1), id=figi)
             elif instrument_type == "share":
                 info = client.instruments.share_by(id_type=InstrumentIdType(1), id=figi)
-            elif instrument_type == 'etf':
+            elif instrument_type == "etf":
                 info = client.instruments.etf_by(id_type=InstrumentIdType(1), id=figi)
             else:
                 info = client.instruments.get_instrument_by(id_type=InstrumentIdType(1), id=figi)

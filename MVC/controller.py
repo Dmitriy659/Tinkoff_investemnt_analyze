@@ -16,38 +16,39 @@ class Controller:
             log.info("Account id successfully received")
 
         self.available_functions = {"ОТЧЕТ": ("Создать excel отчет с расширенной аналитикой по портфелю",
-                                              "Расчёт стоимости каждого актива: акции, облигации (флоатеры и нет),"
-                                              "фонды - отразить все данные на графиках")}
+                                              "Расчёты и аналитика с графиками по каждому виду актива: акции,"
+                                              " облигации (флоатеры и нет), фонды и другое")}
         self.model = Model(self.account_id, token)
         self.view = View()
 
     def start_work(self):
         print("Привет, это приложение расширенной аналитики брокерского счета в Тинькофф-инвестициях")
-        print("Сейчас я могу предоставить следующий функционал, чтобы узнать о функции поподробнее напиши '{ФУНКЦИЯ} "
-              "info'.\nА чтобы воспользоваться функцией напиши '{ФУНКЦИЯ}'\n")
+        print("Сейчас я могу предоставить следующий функционал, чтобы узнать о функции поподробнее напиши 'ФУНКЦИЯ "
+              "info'.\nЧтобы воспользоваться функцией напиши её название так: 'ФУНКЦИЯ'\n")
+        print("Чтобы завершить программу, напиши 'ВЫЙТИ'")
 
         for func in self.available_functions:
             print(f"{func} - {self.available_functions[func][0]}")
 
         while True:
-            query = input('Напиши функцию, которую ты хочешь запустить\n').strip()
-            if query.endswith('info'):
+            query = input("Напиши функцию, которую ты хочешь запустить\n").strip()
+            if query.endswith("info"):
                 func_name = query.split()
-                if func_name in self.available_functions:
-                    print(self.available_functions[query][1])
+                if func_name[0] in self.available_functions:
+                    print(self.available_functions[func_name[0]][1])
                 else:
-                    print('Такой функции нет')
+                    print("Такой функции нет")
             elif query in self.available_functions:
                 status = self.choice_function(query)
-                print('Статус', status)
-            elif query == 'ВЫЙТИ':
-                print('Завершение...')
+                print("Статус", status)
+            elif query == "ВЫЙТИ":
+                print("Завершение...")
                 break
             else:
-                print('Такой функции нет')
+                print("Такой функции нет")
 
     def choice_function(self, func_name):
-        if func_name == 'ОТЧЕТ':
+        if func_name == "ОТЧЕТ":
             return self.make_report()
         return "error"
 
@@ -56,5 +57,4 @@ class Controller:
         if data:
             return self.view.make_report(data)
         else:
-            return 'error'
-
+            return "error"
