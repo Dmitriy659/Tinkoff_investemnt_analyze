@@ -192,13 +192,16 @@ class Model:
 
     def rebalance_1(self, old_structure, new_structure, whole_money):
         res = {}
+        whole_price = 0
         for pos in new_structure:
             cur_price = old_structure.get(pos, 0)
             new_price = whole_money * new_structure[pos]
-            res[pos] = f"{cur_price}->{new_price} - {new_price - cur_price}"
+            whole_price += new_price
+            res[pos] = f"{round(cur_price, 2)}->{round(new_price, 2)} - {round(new_price - cur_price, 2)}"
         for pos in old_structure:
             if pos not in new_structure:
-                res[pos] = f"{old_structure[pos]}->0 - {0 - old_structure[pos]}"
+                res[pos] = f"{round(old_structure[pos], 2)}->0 - {round(0 - old_structure[pos], 2)}"
+        res["whole_price"] = round(whole_price, 2)
         return res
 
     def rebalance_3(self, old_structure, new_structure, whole_money):
@@ -226,4 +229,5 @@ class Model:
         for pos in old_structure:
             if pos not in new_structure:
                 res[pos] = f"{round(old_structure[pos], 2)}->0 : {round(0 - old_structure[pos], 2)}"
+        res["whole_price"] = round(new_sum, 2)
         return res
