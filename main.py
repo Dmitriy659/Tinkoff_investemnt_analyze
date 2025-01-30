@@ -1,12 +1,19 @@
-from datetime import timedelta
-
-from config.config import TOKEN
-
-from tinkoff.invest import CandleInterval, Client
-from tinkoff.invest.utils import now
+from MVC.controller import Controller
 
 
-with Client(TOKEN) as client:
-    account_id = client.users.get_accounts().accounts[0].id
-    shares = client.operations.get_portfolio(account_id=account_id)
-    print(shares)
+def main():
+    controller = Controller()
+    controller.start_work()
+
+
+if __name__ == "__main__":
+    main()
+
+
+"""
+Будем использовать бин поиск. Если при данной сумме можно составить пропорцию, то двигаем правую границу,
+иначе левую. Нужно найти как можно мелкую сумму
+При этом все деньги изначально нужно вычесть из портфеля как будто их не было. После если в решении итоговая
+сумма больше чем изначальная (с учетом денег), то всё отлично, но если она меньше, то разницу денег просто
+равномерно распределяем между активами.
+"""
