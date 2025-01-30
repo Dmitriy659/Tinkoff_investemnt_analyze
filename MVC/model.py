@@ -1,3 +1,4 @@
+import time
 from collections import defaultdict
 from pprint import pprint
 
@@ -146,6 +147,7 @@ class Model:
                 res["whole_price"] = whole_price
 
                 log.info("Данные успешно получены")
+                time.sleep(0.08)
                 return res
         except Exception as e:
             log.error("Error while getting portfolio data", str(e))
@@ -166,3 +168,62 @@ class Model:
         except Exception as e:
             log.error("Error while getting instrument info %s, %s", figi, str(e))
             return None, None
+
+    def get_portfolio_for_view(self):
+        """Получение распределения активов для вывода в консоль"""
+        data = self.get_portfolio_data()
+        whole_price = data["whole_price"]
+        active_sum = 0
+        res = {}
+        for pos in data:
+            if pos == "bond":
+                if data[pos]["floater_price"] > 0:
+                    res["floater_bond"] = data[pos]["floater_price"]
+                    active_sum += data[pos]["floater_price"]
+                if data[pos]["regular_price"] > 0:
+                    res["regular_bond"] = data[pos]["regular_price"]
+                    active_sum += data[pos]["regular_price"]
+            else:
+                if pos != "whole_price" and data[pos]["total_price"] > 0:
+                    res[pos] = data[pos]["total_price"]
+                    active_sum += data[pos]["total_price"]
+        res['currency'] = whole_price - active_sum
+        return res, whole_price
+
+    def rebalance_1(self, old_structure, new_structure, whole_money):
+        res = {}
+        for pos in new_structure:
+            cur_price = old_structure.get(pos, 0)
+            new_price = whole_money * new_structure[pos]
+            res[pos] = f"{cur_price}->{new_price} - {new_price - cur_price}"
+        for pos in old_structure:
+            if pos not in new_structure:
+                res[pos] = f"{old_structure[pos]}->0 - {0 - old_structure[pos]}"
+        return res
+
+    def rebalance_3(self, old_structure, new_structure, whole_money):
+        def check_sum(old_structure, new_structure, money):
+            for pos in new_structure:
+                if money * new_structure[pos] < old_structure.get(pos, 0):
+                    return False
+            return True
+
+        l = whole_money
+        r = whole_money * 100
+        while r - l > 100:
+            mid = (l + r) / 2
+            if check_sum(old_structure, new_structure, mid):
+                r = mid
+            else:
+                l = mid
+
+        new_sum = l
+        res = {}
+        for pos in new_structure:
+            cur_price = old_structure.get(pos, 0)
+            new_price = new_sum * new_structure[pos]
+            res[pos] = f"{round(cur_price, 2)}->{round(new_price, 2)} : {round(new_price - cur_price, 2)}"
+        for pos in old_structure:
+            if pos not in new_structure:
+                res[pos] = f"{round(old_structure[pos], 2)}->0 : {round(0 - old_structure[pos], 2)}"
+        return res

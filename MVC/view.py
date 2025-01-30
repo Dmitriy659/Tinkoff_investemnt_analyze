@@ -19,7 +19,7 @@ class View:
     def make_report(self, data):
         try:
             log.info("Начинаю создавать отчет...")
-            os.makedirs("../results", exist_ok=True)
+            os.makedirs("/results", exist_ok=True)
 
             workbook = xlsxwriter.Workbook(
                 f"results/report_{datetime.datetime.now().strftime("%Y-%m-%d_%H_%M_%S")}.xlsx")
@@ -231,3 +231,11 @@ class View:
         })
 
         worksheet.insert_chart(insert_place, chart)
+
+    def show_rebalance_changes(self, changes):
+        print('-' * 15)
+        print("Результат")
+        for key, value in changes.items():
+            print(f"{key} - {value}")
+        print('-' * 15)
+        return "ready"
