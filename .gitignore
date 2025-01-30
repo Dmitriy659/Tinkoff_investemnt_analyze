@@ -5,3 +5,4 @@
 *.pyd
 __pycache__/
 settings.json
+/results

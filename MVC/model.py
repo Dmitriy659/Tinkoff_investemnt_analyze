@@ -1,4 +1,6 @@
 from collections import defaultdict
+from pprint import pprint
+
 from tinkoff.invest.services import Services
 
 from logger.logger import get_logger
@@ -49,7 +51,6 @@ class Model:
 
             with Client(self.token) as client:
                 log.info("Получение данных по портфелю")
-
 
                 positions = client.operations.get_positions(account_id=self.account_id)
                 for money in positions.money:
@@ -135,12 +136,12 @@ class Model:
 
                         res.setdefault(instrument_type, {"total_price": 0, "total_amount": 0, "positions": []})
 
-                        res["etf"]["total_price"] += price * cnt
-                        res["etf"]["total_amount"] += cnt
-                        res["etf"]["positions"].append({"name": info.name,
-                                                        "one_price": price,
-                                                        "count": cnt,
-                                                        "whole_price": cnt * price})
+                        res[instrument_type]["total_price"] += price * cnt
+                        res[instrument_type]["total_amount"] += cnt
+                        res[instrument_type]["positions"].append({"name": info.name,
+                                                                  "one_price": price,
+                                                                  "count": cnt,
+                                                                  "whole_price": cnt * price})
                         whole_price += price * cnt
                 res["whole_price"] = whole_price
 
