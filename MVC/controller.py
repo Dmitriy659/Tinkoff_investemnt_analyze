@@ -13,7 +13,9 @@ log = get_logger()
 class Controller:
     def __init__(self):
         with Client(token) as client:
-            self.account_id = client.users.get_accounts().accounts[0].id
+            account = client.users.get_accounts().accounts[0]
+            self.account_id = account.id
+            self.open_date = account.opened_date
             log.info("Account id successfully received")
 
         self.available_functions = {"ОТЧЕТ": ("Создать excel отчет с расширенной аналитикой по портфелю",
@@ -26,7 +28,7 @@ class Controller:
                                         "В третьей активы ребалансировки не продаются, и ищется минимальная дополнительная сумма,"
                                         "чтобы достичь ребалансировки")
                                     }
-        self.model = Model(self.account_id, token)
+        self.model = Model(self.account_id, token, self.open_date)
         self.view = View()
 
     def start_work(self):
