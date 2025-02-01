@@ -1,6 +1,5 @@
 import time
 from collections import defaultdict
-from pprint import pprint
 
 from tinkoff.invest.services import Services
 
@@ -10,15 +9,42 @@ from tinkoff.invest import Client, InstrumentIdType, OperationType
 from tinkoff.invest.utils import now
 
 log = get_logger()
+positions_info = {}
 
 
-class Model:
+class MainModel():
     def __init__(self, account_id, token, open_date):
         self.account_id = account_id
         self.token = token
         self.open_date = open_date
 
+    def _convert_money_to_int(self, money):
+        res = money.units + money.nano / 10 ** 9
+        return res
+
+    def _get_instrument_info(self, client: Services, figi: str, instrument_type: str):
+        try:
+            if instrument_type == "bond":
+                info = client.instruments.bond_by(id_type=InstrumentIdType(1), id=figi)
+            elif instrument_type == "share":
+                info = client.instruments.share_by(id_type=InstrumentIdType(1), id=figi)
+            elif instrument_type == "etf":
+                info = client.instruments.etf_by(id_type=InstrumentIdType(1), id=figi)
+            else:
+                info = client.instruments.get_instrument_by(id_type=InstrumentIdType(1), id=figi)
+            last_price = client.market_data.get_last_prices(figi=[figi])
+            return info, last_price
+        except Exception as e:
+            log.error("Error while getting instrument info %s, %s", figi, str(e))
+            return None, None
+
+
+class Model(MainModel):
+    def __init__(self, account_id, token, open_date):
+        super().__init__(account_id, token, open_date)
+
         self.currencies = defaultdict(str)
+        self.add_functions = AdditionalProcesses(account_id, token, open_date)
 
         with Client(token) as client:
             currencies = client.instruments.currencies()
@@ -55,7 +81,7 @@ class Model:
                    }
             whole_price = 0
 
-            with Client(self.token) as client:
+            with (Client(self.token) as client):
                 log.info("Получение данных по портфелю")
 
                 positions = client.operations.get_positions(account_id=self.account_id)
@@ -66,50 +92,8 @@ class Model:
                     to=now(),
                 )
 
-                uid_bond_float = set()  # id плавающих облигаций
-                uid_bond_reg = set()  # id обычных облигаций
-
-                positions_info = {}
-
-                for position in positions.securities:
-                    info, price = self._get_instrument_info(client, position.figi, position.instrument_type)
-                    info = info.instrument
-
-                    positions_info[position.figi] = {"info": info, "price": price}
-                    if position.instrument_type == "bond":
-                        if info.floating_coupon_flag:
-                            uid_bond_float.add(position.position_uid)
-                        else:
-                            uid_bond_reg.add(position.position_uid)
-
-                dividens = 0
-                coupons_reg = 0
-                coupons_float = 0
-                dividend_per_share = defaultdict(int)
-                coupons_per_bond = defaultdict(int)
-
-                for op in operations.operations:  # сумма дивидендов и купонов
-                    if op.operation_type == OperationType(21):  # дивиденды
-                        if op.figi in positions_info:
-                            info, price = positions_info[op.figi]["info"], positions_info[op.figi]["price"]
-                        else:
-                            info, price = self._get_instrument_info(client, op.figi, op.instrument_type)
-                            info = info.instrument
-                        value = self._convert_money_to_int(op.payment)
-                        dividens += value
-                        dividend_per_share[info.name] += value
-                    elif op.operation_type == OperationType(23):  # купоны
-                        if op.figi in positions_info:
-                            info, price = positions_info[op.figi]["info"], positions_info[op.figi]["price"]
-                        else:
-                            info, price = self._get_instrument_info(client, op.figi, op.instrument_type)
-                            info = info.instrument
-                        value = self._convert_money_to_int(op.payment)
-                        coupons_per_bond[info.name] += value
-                        if op.position_uid in uid_bond_float:
-                            coupons_float += self._convert_money_to_int(op.payment)
-                        else:
-                            coupons_reg += self._convert_money_to_int(op.payment)
+                uid_bond_float = self.add_functions.get_positions_info(positions, client)
+                dividens, dividend_per_share, coupons_per_bond, coupons_float, coupons_reg = self.add_functions.process_operations(operations, client, uid_bond_float)
 
                 portfolio_average_prices = dict()
 
@@ -194,7 +178,7 @@ class Model:
                                                         "count": cnt,
                                                         "whole_price": cnt * price,
                                                         "focus_type": info.focus_type,
-                                                        "avr_price": portfolio_average_prices[position.figi],})
+                                                        "avr_price": portfolio_average_prices[position.figi], })
                         res["etf"]["focus_type"][info.focus_type] += price * cnt
                         whole_price += price * cnt
                     else:
@@ -225,26 +209,6 @@ class Model:
         except Exception as e:
             log.error("Error while getting portfolio data", str(e))
             return {}
-
-    def _convert_money_to_int(self, money):
-        res = money.units + money.nano / 10 ** 9
-        return res
-
-    def _get_instrument_info(self, client: Services, figi: str, instrument_type: str):
-        try:
-            if instrument_type == "bond":
-                info = client.instruments.bond_by(id_type=InstrumentIdType(1), id=figi)
-            elif instrument_type == "share":
-                info = client.instruments.share_by(id_type=InstrumentIdType(1), id=figi)
-            elif instrument_type == "etf":
-                info = client.instruments.etf_by(id_type=InstrumentIdType(1), id=figi)
-            else:
-                info = client.instruments.get_instrument_by(id_type=InstrumentIdType(1), id=figi)
-            last_price = client.market_data.get_last_prices(figi=[figi])
-            return info, last_price
-        except Exception as e:
-            log.error("Error while getting instrument info %s, %s", figi, str(e))
-            return None, None
 
     def get_portfolio_for_view(self):
         """Получение распределения активов для вывода в консоль"""
@@ -310,22 +274,22 @@ class Model:
         return res
 
 
-class AdittionalProcesses:
-    def __init__(self, get_instrument_info, convert_money_to_int):
-        self.get_instrument_info = get_instrument_info
-        self.convert_money_to_int = convert_money_to_int
+class AdditionalProcesses(MainModel):
+    def __init__(self, account_id, token, open_date):
+        super().__init__(account_id, token, open_date)
 
-    def process_operation(self, op, positions_info, client, uid_bond_float, dividend_per_share, coupons_per_bond):
+    def process_operation(self, op, client):
         if op.figi in positions_info:
-            info, price = positions_info[op.figi]["info"], positions_info[op.figi]["price"]
+            info = positions_info[op.figi]["info"]
         else:
-            info, price = self.get_instrument_info(client, op.figi, op.instrument_type)
+            info, price = self._get_instrument_info(client, op.figi, op.instrument_type)
             info = info.instrument
+            positions_info[op.figi] = {"info": info, "price": price}
 
-        value = self.convert_money_to_int(op.payment)
+        value = self._convert_money_to_int(op.payment)
         return info, value
 
-    def process_operations(self, operations, positions_info, client, uid_bond_float):
+    def process_operations(self, operations, client, uid_bond_float):
         dividens = 0
         dividend_per_share = defaultdict(int)
         coupons_per_bond = defaultdict(int)
@@ -334,13 +298,11 @@ class AdittionalProcesses:
 
         for op in operations.operations:
             if op.operation_type == OperationType(21):  # дивиденды
-                info, value = self.process_operation(op, positions_info, client, uid_bond_float, dividend_per_share,
-                                                coupons_per_bond)
+                info, value = self.process_operation(op, client)
                 dividens += value
                 dividend_per_share[info.name] += value
             elif op.operation_type == OperationType(23):  # купоны
-                info, value = self.process_operation(op, positions_info, client, uid_bond_float, dividend_per_share,
-                                                coupons_per_bond)
+                info, value = self.process_operation(op, client)
                 coupons_per_bond[info.name] += value
                 if op.position_uid in uid_bond_float:
                     coupons_float += value
@@ -349,3 +311,14 @@ class AdittionalProcesses:
 
         return dividens, dividend_per_share, coupons_per_bond, coupons_float, coupons_reg
 
+    def get_positions_info(self, positions, client):
+        uid_bond_float = set()
+
+        for position in positions.securities:
+            info, price = self._get_instrument_info(client, position.figi, position.instrument_type)
+            info = info.instrument
+
+            positions_info[position.figi] = {"info": info, "price": price}
+            if position.instrument_type == "bond" and info.floating_coupon_flag:
+                uid_bond_float.add(position.position_uid)
+        return uid_bond_float
