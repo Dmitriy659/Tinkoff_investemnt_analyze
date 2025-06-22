@@ -1,3 +1,4 @@
+import datetime
 import time
 from collections import defaultdict
 
@@ -9,10 +10,9 @@ from tinkoff.invest import Client, InstrumentIdType, OperationType
 from tinkoff.invest.utils import now
 
 log = get_logger()
-positions_info = {}
 
 
-class MainModel():
+class MainModel:
     def __init__(self, account_id, token, open_date):
         self.account_id = account_id
         self.token = token
@@ -44,7 +44,7 @@ class Model(MainModel):
         super().__init__(account_id, token, open_date)
 
         self.currencies = defaultdict(str)
-        self.add_functions = AdditionalProcesses(account_id, token, open_date)
+        self.positions_info = {}
 
         with Client(token) as client:
             currencies = client.instruments.currencies()
@@ -70,18 +70,20 @@ class Model(MainModel):
                             },
                    "share": {"total_price": 0,
                              "total_amount": 0,
+                             "buy_profit": 0,
                              "positions": [],
                              "dividend": 0,
                              "sector": defaultdict(int)
                              },
                    "etf": {"total_price": 0,
                            "total_amount": 0,
+                           "buy_profit": 0,
                            "positions": [],
                            "focus_type": defaultdict(int)}
                    }
             whole_price = 0
 
-            with (Client(self.token) as client):
+            with Client(self.token) as client:
                 log.info("Получение данных по портфелю")
 
                 positions = client.operations.get_positions(account_id=self.account_id)
@@ -92,8 +94,11 @@ class Model(MainModel):
                     to=now(),
                 )
 
-                uid_bond_float = self.add_functions.get_positions_info(positions, client)
-                dividens, dividend_per_share, coupons_per_bond, coupons_float, coupons_reg = self.add_functions.process_operations(operations, client, uid_bond_float)
+                blocked_money = sum(item.units + item.nano / 10 ** 9 for item in positions.blocked)
+                whole_price += blocked_money
+
+                uid_bond_float = self.get_positions_info(positions, client)
+                dividens, dividend_per_share, coupons_per_bond, coupons_float, coupons_reg = self.process_operations(operations, client, uid_bond_float)
 
                 portfolio_average_prices = dict()
 
@@ -109,7 +114,7 @@ class Model(MainModel):
                 for position in positions.securities:
                     if position.instrument_type == "bond":  # облигация
                         cnt = position.balance
-                        info, price = positions_info[position.figi]["info"], positions_info[position.figi]["price"]
+                        info, price = self.positions_info[position.figi]["info"], self.positions_info[position.figi]["price"]
 
                         price = price.last_prices[0].price
                         price = price.units * 10 + price.nano / 10 ** 8
@@ -129,8 +134,19 @@ class Model(MainModel):
                                                                      "coupons": coupons_per_bond.get(info.name, 0),
                                                                      "country": info.country_of_risk_name,
                                                                      "nominal": info.initial_nominal.units +
-                                                                                info.initial_nominal.nano / 10 ** 9})
+                                                                                info.initial_nominal.nano / 10 ** 9,
+                                                                     "maturity_date": info.maturity_date,
+                                                                     "placement_date": info.placement_date,
+                                                                     "amortization": info.amortization_flag})
                         else:
+                            coups = client.instruments.get_bond_coupons(figi=position.figi, from_=datetime.datetime.now(),
+                                                                        to=info.maturity_date)
+                            coupons_profit = 0
+                            for coup in coups.events:
+                                pay = coup.pay_one_bond
+                                coupons_profit += (pay.units + pay.nano / 10 ** 9) * cnt
+                            buy_profit = (info.initial_nominal.units + info.initial_nominal.nano / 10 ** 9 - portfolio_average_prices[position.figi]) * cnt
+
                             res["bond"]["regular_amount"] += cnt
                             res["bond"]["regular_price"] += price * cnt
                             res["bond"]["regular_positions"].append({"name": info.name,
@@ -143,36 +159,56 @@ class Model(MainModel):
                                                                      "coupons": coupons_per_bond.get(info.name, 0),
                                                                      "country": info.country_of_risk_name,
                                                                      "nominal": info.initial_nominal.units +
-                                                                                info.initial_nominal.nano / 10 ** 9})
+                                                                                info.initial_nominal.nano / 10 ** 9,
+                                                                     "maturity_date": info.maturity_date,
+                                                                     "placement_date": info.placement_date,
+                                                                     "amortization": info.amortization_flag,
+                                                                     "coupons_future_profit": coupons_profit,
+                                                                     "buy_profit": buy_profit})
+
                         res["bond"]["sector"][info.sector] += price * cnt
                         whole_price += price * cnt
                     elif position.instrument_type == "share":  # акция
                         cnt = position.balance
-                        info, price = positions_info[position.figi]["info"], positions_info[position.figi]["price"]
+                        info, price = self.positions_info[position.figi]["info"], self.positions_info[position.figi]["price"]
+
+                        divs = client.instruments.get_dividends(figi=position.figi, from_=datetime.datetime.now(),
+                                                                to=datetime.datetime.now() + datetime.timedelta(days=180))
+                        if divs.dividends:
+                            div_date = divs.dividends[0].record_date.strftime("%Y-%m-%d")
+                            div_value = divs.dividends[0].dividend_net
+                            div_price = (div_value.units + div_value.nano / 10 ** 9) * cnt
+                        else:
+                            div_date = ""
+                            div_price = ""
 
                         price = price.last_prices[0].price
                         price = price.units + price.nano / 10 ** 9
 
                         res["share"]["total_price"] += price * cnt
                         res["share"]["total_amount"] += cnt
+                        res["share"]["buy_profit"] += (price - portfolio_average_prices[position.figi]) * cnt
                         res["share"]["positions"].append({"name": info.name,
                                                           "country": info.country_of_risk_name,
                                                           "one_price": price,
                                                           "count": cnt,
                                                           "whole_price": cnt * price,
                                                           "avr_price": portfolio_average_prices[position.figi],
-                                                          "dividend": dividend_per_share.get(info.name, 0)})
+                                                          "dividend": dividend_per_share.get(info.name, 0),
+                                                          "div_date": div_date,
+                                                          "div_price": div_price})
                         res["share"]["sector"][info.sector] += price * cnt
                         whole_price += price * cnt
                     elif position.instrument_type == "etf":  # фонд
                         cnt = position.balance
-                        info, price = positions_info[position.figi]["info"], positions_info[position.figi]["price"]
+                        info, price = self.positions_info[position.figi]["info"], self.positions_info[position.figi]["price"]
 
                         price = price.last_prices[0].price
                         price = price.units + price.nano / 10 ** 9
 
                         res["etf"]["total_price"] += price * cnt
                         res["etf"]["total_amount"] += cnt
+                        res["etf"]["buy_profit"] += (price - portfolio_average_prices[position.figi]) * cnt
                         res["etf"]["positions"].append({"name": info.name,
                                                         "one_price": price,
                                                         "count": cnt,
@@ -184,7 +220,7 @@ class Model(MainModel):
                     else:
                         instrument_type = position.instrument_type
                         cnt = position.balance
-                        info, price = positions_info[position.figi]["info"], positions_info[position.figi]["price"]
+                        info, price = self.positions_info[position.figi]["info"], self.positions_info[position.figi]["price"]
 
                         price = price.last_prices[0].price
                         price = price.units + price.nano / 10 ** 9
@@ -202,6 +238,11 @@ class Model(MainModel):
                 res["share"]["dividend"] = dividens
                 res["bond"]["floater_coupon"] = coupons_float
                 res["bond"]["regular_coupon"] = coupons_reg
+
+                res["bond"]["regular_positions"].sort(key=lambda x: x["whole_price"], reverse=True)
+                res["bond"]["floater_positions"].sort(key=lambda x: x["whole_price"], reverse=True)
+                res["share"]["positions"].sort(key=lambda x: x["whole_price"], reverse=True)
+                res["etf"]["positions"].sort(key=lambda x: x["whole_price"], reverse=True)
 
                 log.info("Данные успешно получены")
                 time.sleep(0.08)
@@ -273,18 +314,13 @@ class Model(MainModel):
         res["whole_price"] = round(new_sum, 2)
         return res
 
-
-class AdditionalProcesses(MainModel):
-    def __init__(self, account_id, token, open_date):
-        super().__init__(account_id, token, open_date)
-
     def process_operation(self, op, client):
-        if op.figi in positions_info:
-            info = positions_info[op.figi]["info"]
+        if op.figi in self.positions_info:
+            info = self.positions_info[op.figi]["info"]
         else:
             info, price = self._get_instrument_info(client, op.figi, op.instrument_type)
             info = info.instrument
-            positions_info[op.figi] = {"info": info, "price": price}
+            self.positions_info[op.figi] = {"info": info, "price": price}
 
         value = self._convert_money_to_int(op.payment)
         return info, value
@@ -318,7 +354,7 @@ class AdditionalProcesses(MainModel):
             info, price = self._get_instrument_info(client, position.figi, position.instrument_type)
             info = info.instrument
 
-            positions_info[position.figi] = {"info": info, "price": price}
+            self.positions_info[position.figi] = {"info": info, "price": price}
             if position.instrument_type == "bond" and info.floating_coupon_flag:
                 uid_bond_float.add(position.position_uid)
         return uid_bond_float

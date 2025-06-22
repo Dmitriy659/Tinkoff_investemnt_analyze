@@ -2,7 +2,6 @@ from config.config import TOKEN
 from logger.logger import get_logger
 from .model import Model
 from .view import View
-from .utils import check_rebalance_values
 
 from tinkoff.invest import Client
 
@@ -89,7 +88,7 @@ class Controller:
                         ' долей меньше 1, то они будут равномерно увеличены, а если больше 1, то уменьшены')
 
                     rebalance_str = input().strip()
-                    rebalance_str, status = check_rebalance_values(rebalance_str)
+                    rebalance_str, status = self._check_rebalance_values(rebalance_str)
 
                     if status == "rebalanced":
                         print("Структуру была ребалансирована")
@@ -119,3 +118,33 @@ class Controller:
         except Exception as e:
             log.error("Ошибка во время ребалансировки", str(e))
             return "error"
+
+    def _check_rebalance_values(rebalance_values):
+        try:
+            suma = 0
+            rebalance_values = rebalance_values.split()
+            for i in range(len(rebalance_values)):
+                temp = rebalance_values[i].split('-')
+                temp[1] = max(float(temp[1]), 0)
+                rebalance_values[i] = temp
+                suma += temp[1]
+            if suma != 1:
+                coeff = 1 / suma
+            else:
+                new_values = {}
+                for i in range(len(rebalance_values)):
+                    temp = rebalance_values[i]
+                    new_values[temp[0]] = temp[1]
+                return new_values, "ready"
+
+            new_values = {}
+            for i in range(len(rebalance_values)):
+                temp = rebalance_values[i]
+                temp[1] *= coeff
+                if temp[1] > 0:
+                    new_values[temp[0]] = temp[1]
+            return new_values, "rebalanced"
+
+        except Exception as e:
+            return None, "error"
+
