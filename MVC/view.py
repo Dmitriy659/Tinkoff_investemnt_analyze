@@ -64,8 +64,8 @@ class View:
 
     def _make_bond_worksheet(self, data, worksheet, workbook, whole_price,
                              worksheet_name):
-        width = {"A": 20, "B": 14, "C": 12, "E": 14, "F": 15, "G": 12, "H": 22, "I": 22, "J": 20, "K": 20, "L": 22,
-                 "M": 18, "N": 16, "O": 16, "P": 20, "Q": 16, "R": 20}
+        width = {"A": 20, "B": 14, "C": 12, "E": 14, "F": 15, "G": 22, "H": 18, "I": 20, "J": 20, "K": 22,
+                 "L": 18, "M": 16, "N": 16, "O": 20, "P": 16, "Q": 20, "R": 18, "S": 22}
         for i in width:
             worksheet.set_column(f"{i}:{i}", width[i])
 
@@ -107,9 +107,9 @@ class View:
             if bond_type == "regular":
                 worksheet.write_row(cur_row, 0,
                                     ["Название", "Частота купонов", "Цена за одну", "Кол-во", "Полная цена",
-                                     "Средняя цена",
+                                     "Средняя цена", "Купонная доходность, %/г",
                                      "Купоны", "Текущая доходность купонов", "Текущая полная доходность",
-                                     "Потенциальные купоны", "Профит к номиналу", "Обшая потенциальная прибыль",
+                                     "Потенциальные купоны", "Профит цены покупки", "Обшая потенциальная прибыль",
                                      "Амортизация", "Дата открытия", "Дата погашения", "Страна", "Номинал", "Название"],
                                     cell_format=self.TABLE_HEADER_FORMAT)
             else:
@@ -134,7 +134,7 @@ class View:
 
                 if bond_type == "regular":
                     worksheet.write_row(cur_row, 0, [pos["name"], pos["coupon_per"], pos["one_price"], pos["count"],
-                                                     pos["whole_price"], pos["avr_price"], pos["coupons"], profit,
+                                                     pos["whole_price"], pos["avr_price"], pos["coupons_percent"], pos["coupons"], profit,
                                                      full_profit, pos["coupons_future_profit"], pos["buy_profit"],
                                                      pos["coupons_future_profit"] + pos["buy_profit"] + pos["coupons"],
                                                      pos["amortization"],
@@ -153,7 +153,7 @@ class View:
                                         fmt)
                 even_row = not even_row
 
-        cur_col = 19
+        cur_col = 20
         sector_names = []
         sector_nums = []
         for sector in data["sector"]:
@@ -164,14 +164,14 @@ class View:
         worksheet.write_row(1, cur_col, sector_nums)
 
         self._make_pie(worksheet, worksheet_name, workbook, [0, cur_col], [0, cur_col + len(sector_names) - 1],
-                       [1, cur_col], [1, cur_col + len(sector_nums) - 1], "T5", "Распределение по секторам")
+                       [1, cur_col], [1, cur_col + len(sector_nums) - 1], "U5", "Распределение по секторам")
 
         cur_row = 20
         worksheet.write_row(cur_row, cur_col, ["Обычные", "Плавающие"])
         worksheet.write_row(cur_row + 1, cur_col, [data["regular_price"], data["floater_price"]])
 
         self._make_pie(worksheet, worksheet_name, workbook, [cur_row, cur_col], [cur_row, cur_col + 1],
-                       [cur_row + 1, cur_col], [cur_row + 1, cur_col + 1], "T25", "Распределение облигаций")
+                       [cur_row + 1, cur_col], [cur_row + 1, cur_col + 1], "U25", "Распределение облигаций")
 
     def _make_share_worksheet(self, data, worksheet, workbook, whole_price,
                               worksheet_name):

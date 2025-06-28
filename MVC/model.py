@@ -17,9 +17,12 @@ class MainModel:
         self.account_id = account_id
         self.token = token
         self.open_date = open_date
+        self.currencies = defaultdict(str)
 
     def _convert_money_to_int(self, money):
         res = money.units + money.nano / 10 ** 9
+        if hasattr(money, "currency") and money.currency != "rub":
+            res *= self.currencies.get(money.currency, 1)
         return res
 
     def _get_instrument_info(self, client: Services, figi: str, instrument_type: str):
@@ -42,8 +45,6 @@ class MainModel:
 class Model(MainModel):
     def __init__(self, account_id, token, open_date):
         super().__init__(account_id, token, open_date)
-
-        self.currencies = defaultdict(str)
         self.positions_info = {}
 
         with Client(token) as client:
@@ -83,7 +84,7 @@ class Model(MainModel):
                    }
             whole_price = 0
 
-            with Client(self.token) as client:
+            with (Client(self.token) as client):
                 log.info("Получение данных по портфелю")
 
                 positions = client.operations.get_positions(account_id=self.account_id)
@@ -94,7 +95,7 @@ class Model(MainModel):
                     to=now(),
                 )
 
-                blocked_money = sum(item.units + item.nano / 10 ** 9 for item in positions.blocked)
+                blocked_money = sum(self._convert_money_to_int(item) for item in positions.blocked)
                 whole_price += blocked_money
 
                 uid_bond_float = self.get_positions_info(positions, client)
@@ -106,7 +107,7 @@ class Model(MainModel):
                     portfolio_average_prices[op.figi] = self._convert_money_to_int(op.average_position_price)
 
                 for money in positions.money:
-                    cur_price = money.units + money.nano / 10 ** 9
+                    cur_price = self._convert_money_to_int(money)
                     if money.currency != "rub":
                         cur_price *= self.currencies.get(money.currency, 1)
                     whole_price += cur_price
@@ -116,8 +117,9 @@ class Model(MainModel):
                         cnt = position.balance
                         info, price = self.positions_info[position.figi]["info"], self.positions_info[position.figi]["price"]
 
+                        initial_nominal = self._convert_money_to_int(info.initial_nominal)
                         price = price.last_prices[0].price
-                        price = price.units * 10 + price.nano / 10 ** 8
+                        price = ((price.units + price.nano / 10 ** 9) / 100) * initial_nominal
                         res["bond"]["total_amount"] += cnt
                         res["bond"]["total_price"] += price * cnt
 
@@ -133,19 +135,34 @@ class Model(MainModel):
                                                                          position.figi],
                                                                      "coupons": coupons_per_bond.get(info.name, 0),
                                                                      "country": info.country_of_risk_name,
-                                                                     "nominal": info.initial_nominal.units +
-                                                                                info.initial_nominal.nano / 10 ** 9,
+                                                                     "nominal": self._convert_money_to_int(info.initial_nominal),
                                                                      "maturity_date": info.maturity_date,
                                                                      "placement_date": info.placement_date,
                                                                      "amortization": info.amortization_flag})
                         else:
-                            coups = client.instruments.get_bond_coupons(figi=position.figi, from_=datetime.datetime.now(),
+                            coups = client.instruments.get_bond_coupons(figi=position.figi, from_=info.placement_date,
                                                                         to=info.maturity_date)
+                            nearest_coupon_idx = 0
+                            left, right = 0, len(coups.events) - 1
+                            while left <= right:
+                                mid = (left + right) // 2
+                                if coups.events[mid].coupon_date < datetime.datetime.now(datetime.timezone.utc):
+                                    left = mid + 1
+                                else:
+                                    nearest_coupon_idx = mid
+                                    right = mid - 1
+                            pay_one_bond = self._convert_money_to_int(coups.events[nearest_coupon_idx].pay_one_bond)
+                            if pay_one_bond == 0:  # если следующий купон не определен
+                                pay_one_bond = self._convert_money_to_int(coups.events[max(0, nearest_coupon_idx - 1)].pay_one_bond)
+                            coupons_percent = pay_one_bond * info.coupon_quantity_per_year / self._convert_money_to_int(info.initial_nominal)
+                            coupons_percent = round(coupons_percent * 100, 1)
+                            coups.events = coups.events[nearest_coupon_idx:]
+
                             coupons_profit = 0
                             for coup in coups.events:
                                 pay = coup.pay_one_bond
-                                coupons_profit += (pay.units + pay.nano / 10 ** 9) * cnt
-                            buy_profit = (info.initial_nominal.units + info.initial_nominal.nano / 10 ** 9 - portfolio_average_prices[position.figi]) * cnt
+                                coupons_profit += self._convert_money_to_int(pay) * cnt
+                            buy_profit = (price - portfolio_average_prices[position.figi]) * cnt
 
                             res["bond"]["regular_amount"] += cnt
                             res["bond"]["regular_price"] += price * cnt
@@ -158,8 +175,8 @@ class Model(MainModel):
                                                                          position.figi],
                                                                      "coupons": coupons_per_bond.get(info.name, 0),
                                                                      "country": info.country_of_risk_name,
-                                                                     "nominal": info.initial_nominal.units +
-                                                                                info.initial_nominal.nano / 10 ** 9,
+                                                                     "coupons_percent": coupons_percent,
+                                                                     "nominal": initial_nominal,
                                                                      "maturity_date": info.maturity_date,
                                                                      "placement_date": info.placement_date,
                                                                      "amortization": info.amortization_flag,
@@ -177,13 +194,13 @@ class Model(MainModel):
                         if divs.dividends:
                             div_date = divs.dividends[0].record_date.strftime("%Y-%m-%d")
                             div_value = divs.dividends[0].dividend_net
-                            div_price = (div_value.units + div_value.nano / 10 ** 9) * cnt
+                            div_price = self._convert_money_to_int(div_value) * cnt
                         else:
                             div_date = ""
                             div_price = ""
 
                         price = price.last_prices[0].price
-                        price = price.units + price.nano / 10 ** 9
+                        price = self._convert_money_to_int(price)
 
                         res["share"]["total_price"] += price * cnt
                         res["share"]["total_amount"] += cnt
@@ -204,7 +221,7 @@ class Model(MainModel):
                         info, price = self.positions_info[position.figi]["info"], self.positions_info[position.figi]["price"]
 
                         price = price.last_prices[0].price
-                        price = price.units + price.nano / 10 ** 9
+                        price = self._convert_money_to_int(price)
 
                         res["etf"]["total_price"] += price * cnt
                         res["etf"]["total_amount"] += cnt
@@ -223,7 +240,7 @@ class Model(MainModel):
                         info, price = self.positions_info[position.figi]["info"], self.positions_info[position.figi]["price"]
 
                         price = price.last_prices[0].price
-                        price = price.units + price.nano / 10 ** 9
+                        price = self._convert_money_to_int(price)
 
                         res.setdefault(instrument_type, {"total_price": 0, "total_amount": 0, "positions": []})
 
