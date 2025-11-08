@@ -1,9 +1,12 @@
-import json
-import os
+from pydantic_settings import BaseSettings
 
-config_path = os.path.join(os.path.dirname(__file__), 'settings.json')
 
-file = open(config_path)
-data = json.load(file)
-TOKEN = data['TOKEN']
-file.close()
+class Settings(BaseSettings):
+    token: str
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+settings = Settings()

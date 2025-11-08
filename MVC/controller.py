@@ -1,39 +1,46 @@
-from config.config import TOKEN
+from tinkoff.invest import Client
+
+from config.config import settings
 from logger.logger import get_logger
+
 from .model import Model
 from .view import View
 
-from tinkoff.invest import Client
-
-token = TOKEN
 log = get_logger()
 
 
 class Controller:
     def __init__(self):
+        token = settings.token
         with Client(token) as client:
             account = client.users.get_accounts().accounts[0]
             self.account_id = account.id
             self.open_date = account.opened_date
             log.info("Account id successfully received")
 
-        self.available_functions = {"ОТЧЕТ": ("Создать excel отчет с расширенной аналитикой по портфелю",
-                                              "Расчёты и аналитика с графиками по каждому виду актива: акции,"
-                                              " облигации (флоатеры и нет), фонды и другое"),
-                                    "РЕБАЛАНСИРОВКА": (
-                                        "Найти итоговые стоимости активов в соответствии с ребалансирвокой",
-                                        "Есть три вида ребалансировки: в первой можно всё продавать и покупать,"
-                                        " во второй можно всё продавать и покупать, при этом добавляется ещё сумма\n"
-                                        "В третьей активы ребалансировки не продаются, и ищется минимальная дополнительная сумма,"
-                                        "чтобы достичь ребалансировки")
-                                    }
+        self.available_functions = {
+            "ОТЧЕТ": (
+                "Создать excel отчет с расширенной аналитикой по портфелю",
+                "Расчёты и аналитика с графиками по каждому виду актива: акции,"
+                " облигации (флоатеры и нет), фонды и другое",
+            ),
+            "РЕБАЛАНСИРОВКА": (
+                "Найти итоговые стоимости активов в соответствии с ребалансирвокой",
+                "Есть три вида ребалансировки: в первой можно всё продавать и покупать,"
+                " во второй можно всё продавать и покупать, при этом добавляется ещё сумма\n"
+                "В третьей активы ребалансировки не продаются, и ищется минимальная дополнительная сумма,"
+                "чтобы достичь ребалансировки",
+            ),
+        }
         self.model = Model(self.account_id, token, self.open_date)
         self.view = View()
 
     def start_work(self):
         print("Привет, это приложение расширенной аналитики брокерского счета в Тинькофф-инвестициях")
-        print("Сейчас я могу предоставить следующий функционал, чтобы узнать о функции поподробнее напиши 'ФУНКЦИЯ "
-              "info'.\nЧтобы воспользоваться функцией напиши её название так: 'ФУНКЦИЯ'\n")
+        print(
+            "Сейчас я могу предоставить следующий функционал, чтобы узнать о функции поподробнее напиши 'ФУНКЦИЯ "
+            "info'.\nЧтобы воспользоваться функцией напиши её название так: 'ФУНКЦИЯ'\n"
+        )
         print("Чтобы завершить программу, напиши 'ВЫЙТИ'")
 
         for func in self.available_functions:
@@ -59,7 +66,7 @@ class Controller:
     def choice_function(self, func_name):
         if func_name == "ОТЧЕТ":
             return self.__make_report()
-        elif func_name == 'РЕБАЛАНСИРОВКА':
+        elif func_name == "РЕБАЛАНСИРОВКА":
             return self.__make_rebalance()
         return "error"
 
@@ -79,13 +86,14 @@ class Controller:
                 rebalance_type = input().strip()
                 if rebalance_type in ("1", "2", "3"):
                     output, whole_money = self.model.get_portfolio_for_view()
-                    print('Текущее состояние портфеля')
+                    print("Текущее состояние портфеля")
                     print("Общая стоимость", whole_money)
                     for key, value in output.items():
                         print(f"{key} - {round(value / whole_money, 3)}")
                     print(
-                        'Введите новую структуру портфеля в следующем виде: ИНСТРУМЕНТ-ДОЛЯ ИНСТРУМЕНТ-ДОЛЯ... Если сумма'
-                        ' долей меньше 1, то они будут равномерно увеличены, а если больше 1, то уменьшены')
+                        "Введите новую структуру портфеля в следующем виде: ИНСТРУМЕНТ-ДОЛЯ ИНСТРУМЕНТ-ДОЛЯ... Если сумма"
+                        " долей меньше 1, то они будут равномерно увеличены, а если больше 1, то уменьшены"
+                    )
 
                     rebalance_str = input().strip()
                     rebalance_str, status = self._check_rebalance_values(rebalance_str)
@@ -110,10 +118,10 @@ class Controller:
                         changes = self.model.rebalance_3(output, rebalance_str, whole_money)
                     return self.view.show_rebalance_changes(changes)
                 else:
-                    print('Такого типа нет')
+                    print("Такого типа нет")
                     errors_count += 1
             else:
-                print('Лучше сначала ознакомьтесь с правилами')
+                print("Лучше сначала ознакомьтесь с правилами")
                 return "error"
         except Exception as e:
             log.error("Ошибка во время ребалансировки", str(e))
@@ -124,7 +132,7 @@ class Controller:
             suma = 0
             rebalance_values = rebalance_values.split()
             for i in range(len(rebalance_values)):
-                temp = rebalance_values[i].split('-')
+                temp = rebalance_values[i].split("-")
                 temp[1] = max(float(temp[1]), 0)
                 rebalance_values[i] = temp
                 suma += temp[1]
@@ -147,4 +155,3 @@ class Controller:
 
         except Exception as e:
             return None, "error"
-
